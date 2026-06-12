@@ -53,8 +53,13 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)isIDownloadEnabled;
 - (void)setIDownloadEnabled:(BOOL)enabled needsUnsandbox:(BOOL)needsUnsandbox;
 - (void)setIDownloadLoaded:(BOOL)loaded needsUnsandbox:(BOOL)needsUnsandbox;
+/*
+- (BOOL)isFakelibMounted;
+- (int)setFakelibMounted:(BOOL)mounted;
+- (int)setPrivatePrebootProtected:(BOOL)protected;
 - (BOOL)isJailbreakHidden;
 - (void)setJailbreakHidden:(BOOL)hidden;
+*/
 
 - (BOOL)isPACBypassRequired;
 - (BOOL)isPPLBypassRequired;
@@ -63,9 +68,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSError *)finalizeBootstrap;
 - (NSError *)deleteBootstrap;
 - (NSError *)reinstallPackageManagers;
-
-- (BOOL)isRootlessDopamineJailbroken;
-
+- (NSError *)updateBootLogo;
 @end
 
 NS_ASSUME_NONNULL_END

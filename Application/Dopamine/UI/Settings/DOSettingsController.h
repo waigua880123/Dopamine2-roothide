@@ -6,6 +6,7 @@
 //
 
 #import <UIKit/UIKit.h>
+#import <LocalAuthentication/LocalAuthentication.h>
 #import <Preferences/PSListController.h>
 #import <Preferences/PSSpecifier.h>
 #import "DOPSListController.h"
@@ -13,12 +14,15 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface DOSettingsController : DOPSListController
+@interface DOSettingsController : DOPSListController <UIImagePickerControllerDelegate>
 {
     NSArray <DOExploit *>*_availableKernelExploits;
     NSArray <DOExploit *>*_availablePACBypasses;
     NSArray <DOExploit *>*_availablePPLBypasses;
     NSString *_lastKnownTheme;
+
+    PSSpecifier *_customBootlogoEnabledSpecifier;
+    PSSpecifier *_customBootlogoSpecifier;
 }
 
 @end

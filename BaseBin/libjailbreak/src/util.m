@@ -3,14 +3,12 @@
 #import "util.h"
 #import <sys/stat.h>
 
-/*
 NSString *NSPrebootUUIDPath(NSString *relativePath)
 {
 	@autoreleasepool {
 		return [NSString stringWithUTF8String:prebootUUIDPath(relativePath.UTF8String)];
 	}
 }
-*/
 
 void _JBFixMobilePermissionsOfDirectory(NSString *directoryPath, BOOL recursive)
 {
@@ -38,6 +36,7 @@ void _JBFixMobilePermissionsOfDirectory(NSString *directoryPath, BOOL recursive)
 void JBFixMobilePermissions(void)
 {
 	@autoreleasepool {
+/*********************************** on roothide jbroot:/var is always a symlink ***************************************************
 		NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:JBROOT_PATH(@"/var") error:nil];
 		if ([attributes[NSFileType] isEqualToString:NSFileTypeSymbolicLink]) {
 			// /var/jb/var is a symlink, abort
@@ -48,6 +47,7 @@ void JBFixMobilePermissions(void)
 			// /var/jb/var/mobile is a symlink, abort
 			return;
 		}
+***********************************************************************************************************************************/
 
 		_JBFixMobilePermissionsOfDirectory(JBROOT_PATH(@"/var/mobile"), NO);
 		_JBFixMobilePermissionsOfDirectory(JBROOT_PATH(@"/var/mobile/Library"), NO);

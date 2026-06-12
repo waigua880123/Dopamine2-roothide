@@ -6,21 +6,28 @@
 //
 
 #import "DOEnvironmentManager.h"
+#import "UIImage+JPEG2000.h"
 
-#import <sys/mount.h>
 #import <sys/sysctl.h>
+#import <sys/mount.h>
+#import <sys/utsname.h>
+#import <sys/stat.h>
+#import <unistd.h>
 #import <mach-o/dyld.h>
 #import <libgrabkernel2/libgrabkernel2.h>
 #import <libjailbreak/info.h>
 #import <libjailbreak/codesign.h>
 #import <libjailbreak/util.h>
+#import <libjailbreak/display.h>
 #import <libjailbreak/machine_info.h>
 #import <libjailbreak/carboncopy.h>
 
 #import <IOKit/IOKitLib.h>
 #import "DOUIManager.h"
 #import "DOExploitManager.h"
+#import "DOPreferenceManager.h"
 #import "NSData+Hex.h"
+#import <LocalAuthentication/LocalAuthentication.h>
 
 int reboot3(uint64_t flags, ...);
 
@@ -192,20 +199,6 @@ int reboot3(uint64_t flags, ...);
     return error;
 }
 */
-- (void)locateJailbreakRoot
-{
-    if(gSystemInfo.jailbreakInfo.rootPath) free(gSystemInfo.jailbreakInfo.rootPath);
-    
-    NSString* jbroot_path = find_jbroot(YES);
-    if(jbroot_path) {
-        gSystemInfo.jailbreakInfo.rootPath = strdup(jbroot_path.fileSystemRepresentation);
-        gSystemInfo.jailbreakInfo.jbrand = jbrand();
-    }
-}
-- (NSError *)ensureJailbreakRootExists
-{
-    return nil;
-}
 
 - (BOOL)isArm64e
 {
@@ -221,7 +214,7 @@ int reboot3(uint64_t flags, ...);
         return @"iOS 15.0 - 16.5.1 (arm64e)";
     }
     else {
-        return @"iOS 15.0 - 16.6.1 (arm64)";
+        return @"iOS 15.0 - 15.8.6 / 16.0 - 16.6.1 (arm64)";
     }
 }
 
@@ -236,20 +229,13 @@ int reboot3(uint64_t flags, ...);
     return trollstoreInstallation;
 }
 
-- (BOOL)isRootlessDopamineJailbroken
-{
-     struct statfs fs;
-     int sfsret = statfs("/usr/lib", &fs);
-     if (sfsret == 0) {
-         return strcmp(fs.f_mntonname, "/usr/lib")==0;
-     }
-     return NO;
-}
-
 - (BOOL)isJailbroken
 {
-    if([self isRootlessDopamineJailbroken])
+/************** roothide specific ***********/
+    if(!jbclient_roothide_jailbroken())
         return NO;
+/************** roothide specific ********/
+
     
     static BOOL jailbroken = NO;
     static dispatch_once_t onceToken;
@@ -271,7 +257,7 @@ int reboot3(uint64_t flags, ...);
             version = [NSString stringWithContentsOfFile:JBROOT_PATH(@"/basebin/.version") encoding:NSUTF8StringEncoding error:nil];
         }];
     }];
-    return version;
+    return [[version componentsSeparatedByString:@"."] lastObject];
 }
 
 - (BOOL)isBootstrapped
@@ -338,7 +324,12 @@ int reboot3(uint64_t flags, ...);
             }
         }];
         if (r == 0) {
-            cmd_wait_for_exit(pid);
+            if (cmd_wait_for_exit(pid) != 0) {
+                // Fallback
+                [self runUnsandboxed:^{
+                    killall("/usr/libexec/backboardd", SIGTERM);
+                }];
+            }
         }
     }];
 }
@@ -524,6 +515,29 @@ int reboot3(uint64_t flags, ...);
 }
 
 /*
+- (BOOL)isFakelibMounted
+{
+    struct statfs fsb;
+    if (statfs("/usr/lib", &fsb) != 0) return NO;
+    return strcmp(fsb.f_mntonname, "/usr/lib") == 0;
+}
+
+- (int)setFakelibMounted:(BOOL)mounted
+{
+    int r = 0;
+    if (mounted != [self isFakelibMounted]) {
+        const char *arg = mounted ? "mount" : "unmount";
+        r = exec_cmd(JBROOT_PATH("/basebin/jbctl"), "internal", "fakelib", arg, NULL);
+    }
+    return r;
+}
+
+- (int)setPrivatePrebootProtected:(BOOL)protected
+{
+    const char *arg = protected ? "activate" : "deactivate";
+    return exec_cmd(JBROOT_PATH("/basebin/jbctl"), "internal", "protection", arg, NULL);
+}
+
 - (BOOL)isJailbreakHidden
 {
     return ![[NSFileManager defaultManager] fileExistsAtPath:@"/var/jb"];
@@ -542,16 +556,18 @@ int reboot3(uint64_t flags, ...);
             if (hidden) {
                 if ([self isJailbroken]) {
                     [self unregisterJailbreakApps];
-                    [[NSFileManager defaultManager] removeItemAtPath:JBROOT_PATH(@"/basebin/.fakelib/systemhook.dylib") error:nil];
-                    carbonCopy(JBROOT_PATH(@"/basebin/.dyld.orig"), JBROOT_PATH(@"/basebin/.fakelib/dyld"));
+                    [self setPrivatePrebootProtected:NO];
+                    [self setFakelibMounted:NO];
+                    jbclient_platform_set_systemwide_domain_enabled(false);
                 }
                 [[NSFileManager defaultManager] removeItemAtPath:@"/var/jb" error:nil];
             }
             else {
                 [[NSFileManager defaultManager] createSymbolicLinkAtPath:@"/var/jb" withDestinationPath:JBROOT_PATH(@"/") error:nil];
                 if ([self isJailbroken]) {
-                    carbonCopy(JBROOT_PATH(@"/basebin/.dyld.patched"), JBROOT_PATH(@"/basebin/.fakelib/dyld"));
-                    carbonCopy(JBROOT_PATH(@"/basebin/systemhook.dylib"), JBROOT_PATH(@"/basebin/.fakelib/systemhook.dylib"));
+                    jbclient_platform_set_systemwide_domain_enabled(true);
+                    [self setFakelibMounted:YES];
+                    [self setPrivatePrebootProtected:YES];
                     [self refreshJailbreakApps];
                 }
             }
@@ -627,6 +643,30 @@ int reboot3(uint64_t flags, ...);
     return false;
 }
 
+- (BOOL)deviceSupportsFaceID
+{
+    if (![LAContext class]) return NO;
+
+    LAContext *myContext = [[LAContext alloc] init];
+    NSError *authError = nil;
+    if (![myContext canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics error:&authError]) {
+        NSLog(@"%@", [authError localizedDescription]);
+        return NO;
+    }
+
+    return myContext.biometryType == LABiometryTypeFaceID;
+}
+
+- (BOOL)deviceSupportsLandscapeBootLogo
+{
+    struct utsname u;
+    uname(&u);
+    const char *ipadString = "iPad";
+
+    bool isPad = strncmp(u.machine, ipadString, strlen(ipadString)) == 0;
+    return isPad && [self deviceSupportsFaceID];
+}
+
 - (NSError *)prepareBootstrap
 {
     __block NSError *errOut;
@@ -679,5 +719,37 @@ int reboot3(uint64_t flags, ...);
     return error;
 }
 
+- (NSError *)updateBootLogo
+{
+    const char *bootLogoPath = JBROOT_PATH("/basebin/bootlogo.jp2");
+    if ([[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"bootlogoEnabled" fallback:YES]) {
+        UIImage *bootLogoImage;
+
+        if ([[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"customBootlogoEnabled" fallback:NO]) {
+            bootLogoImage = [UIImage imageWithContentsOfFile:[DOUIManager sharedInstance].bootlogoPath];
+        }
+
+        if (!bootLogoImage) {
+            bootLogoImage = [[DOUIManager sharedInstance] renderBootLogo];
+        }
+
+        [self runAsRoot:^{
+            [self runUnsandboxed:^{
+                unlink(bootLogoPath);
+                [[bootLogoImage jp2DataWithCompressionQuality:0.9] writeToFile:[NSString stringWithUTF8String:bootLogoPath] atomically:NO];
+            }];
+        }];
+
+        return nil;
+    }
+    else {
+        [self runAsRoot:^{
+            [self runUnsandboxed:^{
+                unlink(bootLogoPath);
+            }];
+        }];
+        return nil;
+    }
+}
 
 @end
